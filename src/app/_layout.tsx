@@ -1,645 +1,771 @@
-
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  Animated,
-  Easing,
-  Pressable,
+  ActivityIndicator,
+  RefreshControl,
+  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 
-// Mock data only — this screen is not connected to your Raspberry Pi.
-const GROW = {
-  species: "Blue oyster",
-  stage: "Fruiting",
-  day: 12,
-  temperature: 21.8,
-  humidity: 86,
-  humidifierOn: false,
-  fanOn: true,
-  lastUpdated: "Just now",
+// CHANGE THIS to your Raspberry Pi's actual Wi-Fi IP address.
+const API_URL = "http://10.0.0.198:8765/api/status";
+
+type TentStatus = {
+  temperature: number | null;
+  humidity: number | null;
+  humidifier_on: boolean;
+  fan_on: boolean;
+  low_humidity: number;
+  high_humidity: number;
+  fan_interval_seconds: number;
+  fan_runtime_seconds: number;
+  sensor_ok: boolean;
+  last_sensor_success: string | null;
+  updated_at: string | null;
+  error?: string;
 };
 
-const HISTORY = [52, 61, 57, 70, 65, 77, 72, 86, 80, 74, 90, 83];
-
-const themes = {
-  dark: {
-    bg: "#080D0B",
-    surface: "#111A15",
-    surfaceAlt: "#17231B",
-    border: "#263A2B",
-    text: "#F0F8F1",
-    muted: "#91A497",
-    green: "#9BFF9B",
-    greenDark: "#244E32",
-    glow: "#52FF85",
-    track: "#25372A",
-    pill: "#1D3826",
-  },
-  light: {
-    bg: "#F4F8F2",
-    surface: "#FFFFFF",
-    surfaceAlt: "#EAF3E7",
-    border: "#D8E5D4",
-    text: "#17271C",
-    muted: "#627568",
-    green: "#247B3D",
-    greenDark: "#D9EEDB",
-    glow: "#31A952",
-    track: "#DFEADF",
-    pill: "#E2F2E3",
-  },
+const EMPTY_STATUS: TentStatus = {
+  temperature: null,
+  humidity: null,
+  humidifier_on: false,
+  fan_on: false,
+  low_humidity: 85,
+  high_humidity: 90,
+  fan_interval_seconds: 900,
+  fan_runtime_seconds: 120,
+  sensor_ok: false,
+  last_sensor_success: null,
+  updated_at: null,
 };
 
-type Palette = (typeof themes)["dark"];
+function formatTime(value: string | null) {
+  if (!value) return "Waiting for data";
 
-function GlowDot({ color }: { color: string }) {
-  const pulse = useRef(new Animated.Value(0)).current;
+  const date = new Date(value);
 
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 1400,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 1400,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    );
+  if (Number.isNaN(date.getTime())) return "Unknown";
 
-    animation.start();
-    return () => animation.stop();
-  }, [pulse]);
-
-  return (
-    <Animated.View
-      style={{
-        width: 9,
-        height: 9,
-        borderRadius: 5,
-        backgroundColor: color,
-        opacity: pulse.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.65, 1],
-        }),
-        transform: [
-          {
-            scale: pulse.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0.85, 1.2],
-            }),
-          },
-        ],
-        shadowColor: color,
-        shadowOpacity: 0.9,
-        shadowRadius: 9,
-        elevation: 4,
-      }}
-    />
-  );
-}
-
-function SectionTitle({
-  title,
-  trailing,
-  palette,
-}: {
-  title: string;
-  trailing?: string;
-  palette: Palette;
-}) {
-  return (
-    <View style={styles.sectionTitle}>
-      <Text style={[styles.sectionHeading, { color: palette.text }]}>
-        {title}
-      </Text>
-      {trailing ? (
-        <Text style={[styles.smallLabel, { color: palette.muted }]}>
-          {trailing}
-        </Text>
-      ) : null}
-    </View>
-  );
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function MetricCard({
-  title,
+  label,
   value,
   unit,
-  subtitle,
   icon,
-  palette,
-  history,
+  description,
 }: {
-  title: string;
+  label: string;
   value: string;
   unit: string;
-  subtitle: string;
   icon: string;
-  palette: Palette;
-  history?: number[];
+  description: string;
 }) {
   return (
-    <View
-      style={[
-        styles.metricCard,
-        { backgroundColor: palette.surface, borderColor: palette.border },
-      ]}
-    >
-      <View style={styles.metricTop}>
-        <Text style={[styles.metricIcon, { color: palette.green }]}>
-          {icon}
-        </Text>
-        <Text style={[styles.smallLabel, { color: palette.muted }]}>
-          {title.toUpperCase()}
-        </Text>
+    <View style={styles.metricCard}>
+      <View style={styles.metricHeader}>
+        <Text style={styles.metricIcon}>{icon}</Text>
+        <Text style={styles.metricLabel}>{label}</Text>
       </View>
 
-      <View style={styles.valueRow}>
-        <Text style={[styles.metricValue, { color: palette.text }]}>
-          {value}
-        </Text>
-        <Text style={[styles.metricUnit, { color: palette.muted }]}>
-          {unit}
-        </Text>
+      <View style={styles.metricValueRow}>
+        <Text style={styles.metricValue}>{value}</Text>
+        <Text style={styles.metricUnit}>{unit}</Text>
       </View>
 
-      <Text style={[styles.metricSubtitle, { color: palette.muted }]}>
-        {subtitle}
-      </Text>
-
-      {history ? (
-        <View style={styles.chart}>
-          {history.map((height, index) => (
-            <View
-              key={index}
-              style={[
-                styles.chartBar,
-                {
-                  height: `${height}%`,
-                  backgroundColor:
-                    index === history.length - 1
-                      ? palette.glow
-                      : palette.greenDark,
-                  opacity: index === history.length - 1 ? 1 : 0.85,
-                },
-              ]}
-            />
-          ))}
-        </View>
-      ) : null}
-
-      {history ? (
-        <View style={styles.chartLabels}>
-          <Text style={[styles.tinyLabel, { color: palette.muted }]}>
-            24h ago
-          </Text>
-          <Text style={[styles.tinyLabel, { color: palette.muted }]}>
-            NOW
-          </Text>
-        </View>
-      ) : null}
+      <Text style={styles.metricDescription}>{description}</Text>
     </View>
   );
 }
 
 function DeviceCard({
   title,
-  description,
   icon,
-  active,
-  palette,
+  isOn,
+  detail,
 }: {
   title: string;
-  description: string;
   icon: string;
-  active: boolean;
-  palette: Palette;
+  isOn: boolean;
+  detail: string;
 }) {
   return (
-    <View
-      style={[
-        styles.deviceCard,
-        { backgroundColor: palette.surface, borderColor: palette.border },
-      ]}
-    >
-      <View
-        style={[
-          styles.deviceIconBox,
-          { backgroundColor: active ? palette.pill : palette.surfaceAlt },
-        ]}
-      >
-        <Text style={[styles.deviceIcon, { color: palette.green }]}>
-          {icon}
-        </Text>
-      </View>
+    <View style={styles.deviceCard}>
+      <View style={styles.deviceTop}>
+        <View style={styles.deviceIconBox}>
+          <Text style={styles.deviceIcon}>{icon}</Text>
+        </View>
 
-      <View style={styles.deviceInfo}>
-        <Text style={[styles.deviceTitle, { color: palette.text }]}>
-          {title}
-        </Text>
-        <Text style={[styles.smallLabel, { color: palette.muted }]}>
-          {description}
-        </Text>
-      </View>
-
-      <View
-        style={[
-          styles.statusPill,
-          { backgroundColor: active ? palette.pill : palette.surfaceAlt },
-        ]}
-      >
-        {active ? <GlowDot color={palette.glow} /> : null}
-        <Text
+        <View
           style={[
-            styles.statusText,
-            { color: active ? palette.green : palette.muted },
+            styles.stateBadge,
+            isOn ? styles.stateBadgeOn : styles.stateBadgeOff,
           ]}
         >
-          {active ? "ON" : "OFF"}
-        </Text>
+          <View
+            style={[
+              styles.stateDot,
+              isOn ? styles.dotOn : styles.dotOff,
+            ]}
+          />
+          <Text
+            style={[
+              styles.stateText,
+              isOn ? styles.stateTextOn : styles.stateTextOff,
+            ]}
+          >
+            {isOn ? "RUNNING" : "IDLE"}
+          </Text>
+        </View>
       </View>
+
+      <Text style={styles.deviceTitle}>{title}</Text>
+      <Text style={styles.deviceDetail}>{detail}</Text>
     </View>
   );
 }
 
 export default function DashboardScreen() {
-  const systemScheme = useColorScheme();
-  const palette: Palette =
-    systemScheme === "light" ? themes.light : themes.dark;
+  const [status, setStatus] = useState<TentStatus>(EMPTY_STATUS);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastContact, setLastContact] = useState<string | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const response = await fetch(API_URL);
+
+      if (!response.ok) {
+        throw new Error(`Pi API returned HTTP ${response.status}`);
+      }
+
+      const data: TentStatus = await response.json();
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setStatus(data);
+      setLastContact(new Date().toISOString());
+      setError(null);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not connect to the Raspberry Pi."
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+
+    // Refresh live readings every five seconds.
+    const interval = setInterval(fetchStatus, 5000);
+
+    return () => clearInterval(interval);
+  }, [fetchStatus]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchStatus();
+  }, [fetchStatus]);
+
+  const humidity = status.humidity;
+  const humidityProgress =
+    humidity === null ? 0 : Math.max(0, Math.min(100, humidity));
+
+  const sensorConnected = !error && status.sensor_ok;
+  const piConnected = !error && lastContact !== null;
 
   return (
-    <SafeAreaView
-      style={[styles.safeArea, { backgroundColor: palette.bg }]}
-      edges={["top", "left", "right"]}
-    >
-      <StatusBar
-        barStyle={systemScheme === "light" ? "dark-content" : "light-content"}
-        backgroundColor={palette.bg}
-      />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="light-content" backgroundColor="#0A100D" />
 
       <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
+        style={styles.scroll}
+        contentContainerStyle={styles.container}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#A5F3B4"
+          />
+        }
       >
         {/* Header */}
         <View style={styles.header}>
-          <View>
-            <Text style={[styles.eyebrow, { color: palette.green }]}>
-              MYCO / GROW 01
-            </Text>
-            <Text style={[styles.brand, { color: palette.text }]}>
-              little{" "}
-              <Text style={{ color: palette.green }}>wonders.</Text>
-            </Text>
+          <View style={styles.brandRow}>
+            <View style={styles.brandIcon}>
+              <Text style={styles.brandEmoji}>🍄</Text>
+            </View>
+
+            <View>
+              <Text style={styles.brandName}>myco</Text>
+              <Text style={styles.brandSubtitle}>GROW WITH NATURE</Text>
+            </View>
           </View>
 
           <View
             style={[
-              styles.connectionPill,
-              { backgroundColor: palette.surface, borderColor: palette.border },
+              styles.connectionBadge,
+              piConnected
+                ? styles.connectionOnline
+                : styles.connectionOffline,
             ]}
           >
-            <GlowDot color={palette.glow} />
-            <Text style={[styles.connectionText, { color: palette.text }]}>
-              DEMO
-            </Text>
-          </View>
-        </View>
-
-        {/* Grow hero */}
-        <View
-          style={[
-            styles.hero,
-            { backgroundColor: palette.surfaceAlt, borderColor: palette.border },
-          ]}
-        >
-          <View style={styles.heroOrb} />
-          <Text style={[styles.eyebrow, { color: palette.green }]}>
-            CURRENT GROW · DAY {GROW.day}
-          </Text>
-
-          <Text style={[styles.heroTitle, { color: palette.text }]}>
-            {GROW.species}
-          </Text>
-
-          <View style={styles.heroBottom}>
-            <View>
-              <Text style={[styles.smallLabel, { color: palette.muted }]}>
-                GROW STAGE
-              </Text>
-              <Text style={[styles.stage, { color: palette.green }]}>
-                {GROW.stage}
-              </Text>
-            </View>
-
             <View
               style={[
-                styles.stageBadge,
-                { backgroundColor: palette.pill },
+                styles.connectionDot,
+                piConnected
+                  ? styles.dotOn
+                  : styles.dotOff,
               ]}
-            >
-              <Text style={[styles.stageBadgeText, { color: palette.green }]}>
-                ✳ Growing
+            />
+            <Text style={styles.connectionText}>
+              {piConnected ? "PI CONNECTED" : "PI OFFLINE"}
+            </Text>
+          </View>
+        </View>
+
+        {/* Welcome */}
+        <View style={styles.hero}>
+          <Text style={styles.eyebrow}>YOUR GROW SPACE</Text>
+          <Text style={styles.heroTitle}>A little closer{"\n"}to nature.</Text>
+          <Text style={styles.heroDescription}>
+            Your mushroom tent, monitored in real time.
+          </Text>
+        </View>
+
+        {/* Sensor status */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Live environment</Text>
+          <Text style={styles.liveLabel}>
+            <Text style={styles.liveDot}>● </Text>
+            LIVE
+          </Text>
+        </View>
+
+        <View style={styles.metricsGrid}>
+          <MetricCard
+            label="TEMPERATURE"
+            value={
+              status.temperature === null
+                ? "--"
+                : status.temperature.toFixed(1)
+            }
+            unit="°C"
+            icon="◉"
+            description="Inside your tent"
+          />
+
+          <MetricCard
+            label="HUMIDITY"
+            value={
+              humidity === null ? "--" : humidity.toFixed(1)
+            }
+            unit="%"
+            icon="♧"
+            description="Relative humidity"
+          />
+        </View>
+
+        {/* Humidity target */}
+        <View style={styles.targetCard}>
+          <View style={styles.targetHeader}>
+            <View>
+              <Text style={styles.targetTitle}>Humidity target</Text>
+              <Text style={styles.targetSubtitle}>
+                Current controller settings
               </Text>
             </View>
+
+            <Text style={styles.targetRange}>
+              {status.low_humidity}–{status.high_humidity}%
+            </Text>
+          </View>
+
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${humidityProgress}%` },
+              ]}
+            />
+          </View>
+
+          <View style={styles.progressLabels}>
+            <Text style={styles.progressLabel}>0%</Text>
+            <Text style={styles.progressLabel}>100%</Text>
+          </View>
+
+          <View style={styles.sensorFooter}>
+            <View
+              style={[
+                styles.sensorIndicator,
+                sensorConnected
+                  ? styles.sensorIndicatorOn
+                  : styles.sensorIndicatorOff,
+              ]}
+            />
+            <Text style={styles.sensorFooterText}>
+              {loading
+                ? "Connecting to your tent..."
+                : sensorConnected
+                ? "Sensor readings available"
+                : "Sensor reading unavailable"}
+            </Text>
           </View>
         </View>
 
-        {/* Environment */}
-        <SectionTitle title="The environment" trailing="MOCK DATA" palette={palette} />
-
-        <View style={styles.metricsRow}>
-          <MetricCard
-            title="Temperature"
-            value={GROW.temperature.toFixed(1)}
-            unit="°C"
-            subtitle="Inside your tent"
-            icon="☼"
-            palette={palette}
-            history={[48, 52, 49, 56, 62, 59, 68, 65, 70, 73, 67, 71]}
-          />
-
-          <MetricCard
-            title="Humidity"
-            value={String(GROW.humidity)}
-            unit="%"
-            subtitle="Relative humidity"
-            icon="≈"
-            palette={palette}
-            history={HISTORY}
-          />
+        {/* Devices */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Your equipment</Text>
+          <Text style={styles.automaticLabel}>AUTOMATIC</Text>
         </View>
 
-        {/* Hardware */}
-        <SectionTitle title="Your little ecosystem" palette={palette} />
-
-        <View style={styles.deviceList}>
+        <View style={styles.devicesGrid}>
           <DeviceCard
             title="Humidifier"
-            description="Humidity control"
-            icon="≋"
-            active={GROW.humidifierOn}
-            palette={palette}
+            icon="♨"
+            isOn={status.humidifier_on}
+            detail={
+              status.humidifier_on
+                ? "Adding moisture"
+                : "Humidity control"
+            }
           />
+
           <DeviceCard
-            title="Fresh air"
-            description="Inline duct fan"
-            icon="↗"
-            active={GROW.fanOn}
-            palette={palette}
+            title="Fresh air fan"
+            icon="✳"
+            isOn={status.fan_on}
+            detail={
+              status.fan_on
+                ? "Ventilating tent"
+                : `Every ${Math.round(
+                    status.fan_interval_seconds / 60
+                  )} minutes`
+            }
           />
         </View>
+
+        {/* Connection / errors */}
+        {error ? (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorTitle}>Can't reach your Pi</Text>
+            <Text style={styles.errorMessage}>{error}</Text>
+            <Text style={styles.errorHint}>
+              Check that the Pi and your phone are on the same Wi-Fi,
+              the API is running, and API_URL contains the correct Pi IP.
+            </Text>
+          </View>
+        ) : null}
 
         {/* Footer */}
-        <View
-          style={[
-            styles.footerCard,
-            { backgroundColor: palette.surface, borderColor: palette.border },
-          ]}
-        >
-          <View style={styles.footerIcon}>
-            <Text style={{ fontSize: 22 }}>✦</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.footerTitle, { color: palette.text }]}>
-              Small changes. New life.
-            </Text>
-            <Text style={[styles.smallLabel, { color: palette.muted }]}>
-              Last updated {GROW.lastUpdated}
-            </Text>
-          </View>
+        <View style={styles.footer}>
+          <Text style={styles.footerTitle}>GROWING, SIMPLIFIED.</Text>
+          <Text style={styles.footerText}>
+            Last API contact: {formatTime(lastContact)}
+          </Text>
+          <Text style={styles.footerText}>
+            Last sensor reading: {formatTime(status.last_sensor_success)}
+          </Text>
+          <Text style={styles.footerVersion}>MYCO · LOCAL TEST</Text>
         </View>
-
-        <Text style={[styles.disclaimer, { color: palette.muted }]}>
-          Preview mode · Readings are illustrative, not live sensor data.
-        </Text>
       </ScrollView>
-
-      {/* Minimal bottom navigation preview */}
-      <View
-        style={[
-          styles.bottomNav,
-          { backgroundColor: palette.bg, borderTopColor: palette.border },
-        ]}
-      >
-        {[
-          ["◉", "GROW", true],
-          ["✳", "JOURNAL", false],
-          ["◌", "MOMENTS", false],
-          ["⌘", "SETUP", false],
-        ].map(([icon, label, selected]) => (
-          <Pressable
-            key={String(label)}
-            accessibilityRole="button"
-            accessibilityLabel={String(label)}
-            onPress={() => {
-              // Navigation will be wired up in a later step.
-            }}
-            style={styles.navItem}
-          >
-            <Text
-              style={[
-                styles.navIcon,
-                { color: selected ? palette.green : palette.muted },
-              ]}
-            >
-              {icon}
-            </Text>
-            <Text
-              style={[
-                styles.navLabel,
-                { color: selected ? palette.green : palette.muted },
-              ]}
-            >
-              {label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 26 },
-
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#0A100D",
+  },
+  scroll: {
+    flex: 1,
+  },
+  container: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 40,
+  },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  eyebrow: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 2,
-    marginBottom: 7,
-  },
-  brand: { fontSize: 27, fontWeight: "800", letterSpacing: -1.2 },
-  connectionPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderWidth: 1,
-    borderRadius: 30,
-  },
-  connectionText: { fontSize: 10, fontWeight: "800", letterSpacing: 1 },
-
-  hero: {
-    minHeight: 190,
-    borderWidth: 1,
-    borderRadius: 24,
-    padding: 22,
-    justifyContent: "space-between",
-    overflow: "hidden",
-    marginBottom: 27,
-  },
-  heroOrb: {
-    position: "absolute",
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    right: -65,
-    top: -70,
-    backgroundColor: "#39A95D",
-    opacity: 0.09,
-  },
-  heroTitle: {
-    fontSize: 32,
-    fontWeight: "700",
-    letterSpacing: -1,
-    marginVertical: 14,
-  },
-  heroBottom: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  stage: { fontSize: 17, fontWeight: "700", marginTop: 5 },
-  stageBadge: { borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8 },
-  stageBadgeText: { fontSize: 11, fontWeight: "700" },
-
-  sectionTitle: {
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 13,
-    marginTop: 2,
+    marginBottom: 36,
   },
-  sectionHeading: { fontSize: 18, fontWeight: "700", letterSpacing: -0.4 },
-  smallLabel: { fontSize: 10, fontWeight: "600", letterSpacing: 0.5 },
-
-  metricsRow: { flexDirection: "row", gap: 12, marginBottom: 27 },
-  metricCard: {
-    flex: 1,
-    minWidth: 0,
-    padding: 13,
-    borderWidth: 1,
-    borderRadius: 20,
-  },
-  metricTop: {
+  brandRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    marginBottom: 17,
+    gap: 10,
   },
-  metricIcon: { fontSize: 20, fontWeight: "600" },
-  valueRow: { flexDirection: "row", alignItems: "baseline", gap: 4 },
-  metricValue: { fontSize: 29, fontWeight: "700", letterSpacing: -1.2 },
-  metricUnit: { fontSize: 12, fontWeight: "600" },
-  metricSubtitle: { fontSize: 10, marginTop: 5, minHeight: 25 },
-  chart: {
-    height: 37,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 3,
-    marginTop: 10,
-  },
-  chartBar: { flex: 1, borderRadius: 3, minHeight: 3 },
-  chartLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 7,
-  },
-  tinyLabel: { fontSize: 8, letterSpacing: 0.3 },
-
-  deviceList: { gap: 10, marginBottom: 24 },
-  deviceCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
-    borderWidth: 1,
-    borderRadius: 18,
-    gap: 12,
-  },
-  deviceIconBox: {
-    width: 43,
-    height: 43,
-    borderRadius: 14,
+  brandIcon: {
+    width: 45,
+    height: 45,
+    borderRadius: 15,
+    backgroundColor: "#18291D",
     alignItems: "center",
     justifyContent: "center",
   },
-  deviceIcon: { fontSize: 22, fontWeight: "600" },
-  deviceInfo: { flex: 1, gap: 5 },
-  deviceTitle: { fontSize: 14, fontWeight: "700" },
-  statusPill: {
+  brandEmoji: {
+    fontSize: 25,
+  },
+  brandName: {
+    color: "#F1F7F0",
+    fontSize: 25,
+    fontWeight: "800",
+    letterSpacing: -1,
+  },
+  brandSubtitle: {
+    color: "#7E9B83",
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 2,
+    marginTop: 1,
+  },
+  connectionBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 8,
     borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    borderWidth: 1,
   },
-  statusText: { fontSize: 10, fontWeight: "800" },
-
-  footerCard: {
+  connectionOnline: {
+    backgroundColor: "#14251A",
+    borderColor: "#294B31",
+  },
+  connectionOffline: {
+    backgroundColor: "#291A19",
+    borderColor: "#5B302B",
+  },
+  connectionDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 5,
+  },
+  dotOn: {
+    backgroundColor: "#75E69A",
+  },
+  dotOff: {
+    backgroundColor: "#F28B82",
+  },
+  connectionText: {
+    color: "#B6CBB9",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  hero: {
+    marginBottom: 32,
+  },
+  eyebrow: {
+    color: "#8DD9A0",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 2.5,
+    marginBottom: 12,
+  },
+  heroTitle: {
+    color: "#F3F7F1",
+    fontSize: 43,
+    fontWeight: "800",
+    letterSpacing: -1.8,
+    lineHeight: 47,
+  },
+  heroDescription: {
+    color: "#92A397",
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 13,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+    marginTop: 4,
+  },
+  sectionTitle: {
+    color: "#EAF1EA",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  liveLabel: {
+    color: "#A5DDB0",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  liveDot: {
+    color: "#76E39B",
+  },
+  automaticLabel: {
+    color: "#8FA992",
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1,
+  },
+  metricsGrid: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 14,
+  },
+  metricCard: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: "#121C16",
+    borderColor: "#24362A",
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 15,
+    minHeight: 145,
+  },
+  metricHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 15,
-    borderWidth: 1,
-    borderRadius: 18,
+    gap: 7,
   },
-  footerIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: "#193E27",
+  metricIcon: {
+    color: "#8FE7A5",
+    fontSize: 17,
+  },
+  metricLabel: {
+    color: "#A4B5A7",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  metricValueRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginTop: 19,
+  },
+  metricValue: {
+    color: "#F0F7F0",
+    fontSize: 34,
+    fontWeight: "700",
+    letterSpacing: -1.3,
+  },
+  metricUnit: {
+    color: "#A4B5A7",
+    fontSize: 15,
+    marginLeft: 4,
+  },
+  metricDescription: {
+    color: "#718477",
+    fontSize: 11,
+    marginTop: 7,
+  },
+  targetCard: {
+    backgroundColor: "#121C16",
+    borderColor: "#24362A",
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 17,
+    marginBottom: 31,
+  },
+  targetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  targetTitle: {
+    color: "#ECF3EC",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  targetSubtitle: {
+    color: "#7F9384",
+    fontSize: 11,
+    marginTop: 5,
+  },
+  targetRange: {
+    color: "#9CE9AC",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  progressTrack: {
+    height: 7,
+    backgroundColor: "#27382B",
+    borderRadius: 8,
+    overflow: "hidden",
+    marginTop: 21,
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#8CE6A0",
+    borderRadius: 8,
+  },
+  progressLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 6,
+  },
+  progressLabel: {
+    color: "#718477",
+    fontSize: 10,
+  },
+  sensorFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 17,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#26362A",
+  },
+  sensorIndicator: {
+    width: 7,
+    height: 7,
+    borderRadius: 5,
+  },
+  sensorIndicatorOn: {
+    backgroundColor: "#78E49A",
+  },
+  sensorIndicatorOff: {
+    backgroundColor: "#F28B82",
+  },
+  sensorFooterText: {
+    color: "#8FA393",
+    fontSize: 11,
+  },
+  devicesGrid: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 24,
+  },
+  deviceCard: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: "#121C16",
+    borderColor: "#24362A",
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 14,
+    minHeight: 150,
+  },
+  deviceTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 6,
+  },
+  deviceIconBox: {
+    width: 39,
+    height: 39,
+    borderRadius: 13,
+    backgroundColor: "#203326",
     alignItems: "center",
     justifyContent: "center",
   },
-  footerTitle: { fontSize: 13, fontWeight: "700", marginBottom: 5 },
-  disclaimer: {
-    fontSize: 10,
-    textAlign: "center",
-    marginTop: 16,
-    marginBottom: 6,
+  deviceIcon: {
+    color: "#A5E9B1",
+    fontSize: 22,
   },
-
-  bottomNav: {
+  stateBadge: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    paddingTop: 11,
-    paddingBottom: 7,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    borderRadius: 12,
   },
-  navItem: { alignItems: "center", gap: 4, minWidth: 58, paddingVertical: 3 },
-  navIcon: { fontSize: 19 },
-  navLabel: { fontSize: 8, fontWeight: "800", letterSpacing: 0.7 },
+  stateBadgeOn: {
+    backgroundColor: "#1D3825",
+  },
+  stateBadgeOff: {
+    backgroundColor: "#263029",
+  },
+  stateDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+  stateText: {
+    fontSize: 8,
+    fontWeight: "800",
+  },
+  stateTextOn: {
+    color: "#8DE6A2",
+  },
+  stateTextOff: {
+    color: "#A0ADA2",
+  },
+  deviceTitle: {
+    color: "#EEF4EE",
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 18,
+  },
+  deviceDetail: {
+    color: "#849889",
+    fontSize: 11,
+    marginTop: 6,
+  },
+  errorCard: {
+    backgroundColor: "#291A19",
+    borderColor: "#65362F",
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+  },
+  errorTitle: {
+    color: "#FFC2B9",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  errorMessage: {
+    color: "#E8B5AE",
+    fontSize: 12,
+    marginTop: 8,
+  },
+  errorHint: {
+    color: "#C9A19B",
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 9,
+  },
+  footer: {
+    alignItems: "center",
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#223027",
+  },
+  footerTitle: {
+    color: "#8EC99B",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 2,
+    marginBottom: 13,
+  },
+  footerText: {
+    color: "#718477",
+    fontSize: 10,
+    marginBottom: 5,
+  },
+  footerVersion: {
+    color: "#46594A",
+    fontSize: 9,
+    fontWeight: "700",
+    letterSpacing: 1.5,
+    marginTop: 12,
+  },
 });
