@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -9,6 +10,8 @@ import {
   Text,
   View,
 } from "react-native";
+
+import { supabase } from "@/lib/supabase";
 
 // CHANGE THIS to your Raspberry Pi's actual Wi-Fi IP address.
 const API_URL = "http://10.0.0.198:8765/api/status";
@@ -383,6 +386,9 @@ export default function DashboardScreen() {
           <Text style={styles.footerText}>
             Last sensor reading: {formatTime(status.last_sensor_success)}
           </Text>
+          <Pressable onPress={() => supabase.auth.signOut()} style={styles.signOutButton}>
+            <Text style={styles.signOutText}>SIGN OUT</Text>
+          </Pressable>
           <Text style={styles.footerVersion}>MYCO · LOCAL TEST</Text>
         </View>
       </ScrollView>
@@ -760,6 +766,20 @@ const styles = StyleSheet.create({
     color: "#718477",
     fontSize: 10,
     marginBottom: 5,
+  },
+  signOutButton: {
+    marginTop: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#294332",
+  },
+  signOutText: {
+    color: "#A5DDB0",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.5,
   },
   footerVersion: {
     color: "#46594A",
