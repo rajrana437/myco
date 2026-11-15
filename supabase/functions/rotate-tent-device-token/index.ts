@@ -18,7 +18,7 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const authHeader = req.headers.get("Authorization") ?? "";
-  const jwt = authHeader.replace(/^Bearer\\s+/i, "");
+  const jwt = authHeader.replace(/^Bearer\s+/i, "");
   if (!jwt) return json({ error: "Missing authentication" }, 401);
 
   const url = Deno.env.get("SUPABASE_URL");
