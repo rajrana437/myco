@@ -1,67 +1,72 @@
-# Myco Raspberry Pi cloud uploader
+# Myco Raspberry Pi setup
 
-This uploader is deliberately separate from `humidity_controller.py`. It reads the existing
-`~/mushroom-controller/status.json` file and posts readings to the Supabase
-`ingest-mushroom-reading` Edge Function. It does not access GPIO, relays, or the DHT22.
+The Myco uploader runs separately from your mushroom controller. It reads
+`~/mushroom-controller/status.json` and sends readings to Supabase every 30 seconds.
+It does **not** control GPIO, relays, the DHT22, or change `humidity_controller.py`.
 
-## Files
+## Beginner setup (two commands)
 
-- `myco_cloud.py`: standalone uploader (Python standard library only).
-- `myco-cloud@.service`: systemd template; run it as the same Linux user that owns
-  the `mushroom-controller` directory.
+**Before starting:** your Myco tent must have a registered Raspberry Pi device and a
+device token issued for that tent. The token is private to this Pi. The in-app device
+registration/token-issuing screen is not implemented yet, so don't make up a token or
+try this installation until you have received a real device token.
 
-## Install on the Pi
+On the Pi, open a terminal using the same Linux account that runs your existing
+`mushroom-controller` folder, then run:
 
-Copy `myco_cloud.py` into `~/mushroom-controller/`, then:
+1. Download the installer:
 
-```bash
-sudo install -m 600 /dev/null /etc/myco-cloud.env
-sudo nano /etc/myco-cloud.env
-```
+   ```bash
+   curl -fsSLO https://raw.githubusercontent.com/rajrana437/myco/feature/supabase-cloud-foundation/pi/install.sh
+   ```
 
-Put these values in the file (replace the placeholders):
+2. Run it:
 
-```ini
-MYCO_SUPABASE_URL=https://brtnkceizhzdgeknbwrm.supabase.co
-MYCO_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
-MYCO_DEVICE_TOKEN=YOUR_UNIQUE_DEVICE_TOKEN
-MYCO_UPLOAD_INTERVAL_SECONDS=30
-MYCO_STATUS_FILE=/home/YOUR_LINUX_USER/mushroom-controller/status.json
-```
+   ```bash
+   bash install.sh
+   ```
 
-The publishable key is not a secret. The device token is private to this Pi; do not commit
-it to GitHub or put it in the mobile app. Never use the Supabase secret/service-role key.
+The installer checks that your existing `status.json` exists, downloads the uploader,
+asks for your tent's device token, installs a protected configuration file, and enables
+the background service. It does not install packages or modify your working controller.
 
-Install the service template:
-
-```bash
-sudo install -m 644 myco-cloud@.service /etc/systemd/system/myco-cloud@.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now myco-cloud@$(whoami).service
-```
-
-Check status and logs:
+After setup, check that it is running:
 
 ```bash
 sudo systemctl status myco-cloud@$(whoami).service
 sudo journalctl -u myco-cloud@$(whoami).service -f
 ```
 
-Stop or disable only the uploader:
+To stop only cloud uploading (local humidity control keeps running):
 
 ```bash
 sudo systemctl disable --now myco-cloud@$(whoami).service
 ```
 
+## What the installer configures
+
+- Uploader: `~/mushroom-controller/myco_cloud.py`
+- Private configuration: `/etc/myco-cloud.env` (permissions restricted to root)
+- Background service: `myco-cloud@YOUR_LINUX_USER.service`
+- Upload interval: 30 seconds
+- Supabase project URL and publishable key: configured by the installer
+
+The Supabase publishable key is intended for client use. The device token is secret and
+must not be committed to GitHub or placed in the mobile app. Never use the Supabase
+secret/service-role key on the Pi.
+
+## Troubleshooting
+
+- **Installer says status.json is missing:** confirm your existing controller is running
+  and writing `~/mushroom-controller/status.json`.
+- **HTTP 401 / Unauthorized:** the token is missing, incorrect, or has not been registered
+  for this tent in Supabase.
+- **Network errors:** check that the Pi has internet access; the uploader retries every
+  30 seconds. Local humidity control is unaffected.
+- **View logs:** use the `journalctl` command above.
+
 ## Expected status.json fields
 
-The existing controller status file should contain `temperature`, `humidity`,
-`humidifier_on`, `fan_on`, and `sensor_ok`. The optional `updated_at` timestamp is
-forwarded as `recorded_at`.
-
-## Important
-
-The uploader needs a device token whose SHA-256 hash has already been registered in the
-Supabase `devices.token_hash` table for the correct tent. Device-token provisioning is a
-separate secure setup step; do not invent a token or manually insert its plaintext into the
-database. Until a token is issued and registered, the function correctly returns HTTP 401.
+The existing status file must contain `temperature`, `humidity`, `humidifier_on`,
+`fan_on`, and `sensor_ok`. An optional ISO-format `updated_at` timestamp is forwarded
+as `recorded_at`.
