@@ -38,7 +38,7 @@ curl -fsSL "$REPO_RAW/myco_cloud.py" -o "$APP_DIR/myco_cloud.py"
 chmod 755 "$APP_DIR/myco_cloud.py"
 curl -fsSL "$REPO_RAW/myco-cloud@.service" -o /tmp/myco-cloud@.service
 
-read -r -p "Paste the device token generated for this tent in Myco: " DEVICE_TOKEN
+read -r -s -p "Paste the device token generated for this tent in Myco (input hidden): " DEVICE_TOKEN\necho
 if [[ ${#DEVICE_TOKEN} -lt 32 ]]; then
   echo "That token looks too short. No service was installed."
   exit 1
