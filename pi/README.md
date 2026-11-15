@@ -12,12 +12,15 @@ This installs the **cloud uploader only**. Your existing local humidity controll
 
 ## Install (two commands)
 
-Run these on the Raspberry Pi terminal. Do not add `sudo` to either command.
+Run these on the Raspberry Pi terminal. This repository is private, so GitHub will prompt for your username and password; use a fine-grained Personal Access Token with read-only Contents access as the password. Do not add `sudo` to these commands.
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/rajrana437/myco/feature/supabase-cloud-foundation/pi/install.sh
-bash install.sh
+git clone --branch feature/supabase-cloud-foundation https://github.com/rajrana437/myco.git
+cd myco
+bash pi/install.sh
 ```
+
+GitHub will ask for your username and password. Enter your GitHub username, then use a **fine-grained GitHub Personal Access Token** as the password (grant read-only Contents access to this repository). Do not put the token directly in the clone command or share it.
 
 When prompted, paste the device token from Myco. Your typing is hidden. The installer:
 
