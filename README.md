@@ -49,12 +49,15 @@ Your Pi must already be running your working local controller and writing:
 /home/YOUR_LINUX_USER/mushroom-controller/status.json
 ```
 
-On the Pi, sign in with the same Linux user that owns `~/mushroom-controller`. Run:
+On the Pi, sign in with the same Linux user that owns `~/mushroom-controller`. Because this GitHub repository is private, clone it using your GitHub username and a fine-grained Personal Access Token with read-only Contents access. Run:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/rajrana437/myco/feature/supabase-cloud-foundation/pi/install.sh
-bash install.sh
+git clone --branch feature/supabase-cloud-foundation https://github.com/rajrana437/myco.git
+cd myco
+bash pi/install.sh
 ```
+
+GitHub will ask for your username and password. Enter your GitHub username, then use a **fine-grained GitHub Personal Access Token** as the password (grant read-only Contents access to this repository). Do not put the token directly in the clone command or share it.
 
 When asked, paste the device token copied from Myco. The prompt hides what you type. The installer downloads the uploader, stores its configuration with restricted permissions, and starts the background service.
 
