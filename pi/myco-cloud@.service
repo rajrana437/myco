@@ -1,0 +1,20 @@
+[Unit]
+Description=Myco mushroom tent cloud uploader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+EnvironmentFile=/etc/myco-cloud.env
+WorkingDirectory=%h/mushroom-controller
+ExecStart=/usr/bin/python3 %h/mushroom-controller/myco_cloud.py
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
