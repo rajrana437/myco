@@ -33,13 +33,11 @@ Open the Expo app on your phone or use the available Expo development option. Cr
 
 ### 2. Register your mushroom tent in Myco
 
-1. On the dashboard, find **Connect your Raspberry Pi**.
-2. Tap **Connect a tent**.
-3. Enter a tent name and (optionally) your mushroom species.
-4. Tap **Create tent & generate secure token**.
-5. Copy the one-time device token shown on screen. Keep it private; Myco cannot show it again.
+1. Open **Connected tents** on the dashboard.
+2. Tap **Add another tent** and enter a name and (optionally) mushroom species.
+3. Copy the one-time device token shown on screen and paste it into the Pi installer.
 
-Myco creates the tent and registers its Pi securely. The plaintext token is returned once; only its SHA-256 hash is stored in the database.
+Your registered tents remain listed on the dashboard. You can remove a tent or regenerate its device token. For security, an existing token cannot be viewed again: only its SHA-256 hash is stored. Regenerating a token immediately invalidates the previous one.
 
 ### 3. Connect the Raspberry Pi (two commands)
 
@@ -49,7 +47,7 @@ Your Pi must already be running your working local controller and writing:
 /home/YOUR_LINUX_USER/mushroom-controller/status.json
 ```
 
-On the Pi, sign in with the same Linux user that owns `~/mushroom-controller`. Because this GitHub repository is private, clone it using your GitHub username and a fine-grained Personal Access Token with read-only Contents access. Run:
+On the Pi, sign in with the same Linux user that owns `~/mushroom-controller`. Because this GitHub repository is public, no GitHub sign-in or Personal Access Token is required to clone it. Run:
 
 ```bash
 git clone --branch feature/supabase-cloud-foundation https://github.com/rajrana437/myco.git
@@ -57,9 +55,7 @@ cd myco
 bash pi/install.sh
 ```
 
-GitHub will ask for your username and password. Enter your GitHub username, then use a **fine-grained GitHub Personal Access Token** as the password (grant read-only Contents access to this repository). Do not put the token directly in the clone command or share it.
-
-When asked, paste the device token copied from Myco. The prompt hides what you type. The installer downloads the uploader, stores its configuration with restricted permissions, and starts the background service.
+When asked, paste the device token copied from Myco. The prompt hides what you type. The installer copies the uploader from your local repository clone, stores its configuration with restricted permissions, and starts the background service.
 
 **Do not run the installer with `sudo`.** It asks for sudo only when installing the service/configuration.
 
@@ -122,7 +118,7 @@ If your existing status file uses different field names, adjust the uploader map
 - Never put a Supabase secret/service-role key in the app, Pi, `.env`, or GitHub.
 - Never commit `.env` or share a Pi device token.
 - The Pi token is generated using cryptographic randomness, shown once, and stored in Supabase only as a SHA-256 hash.
-- If a token is exposed, revoke its device record and issue a replacement before reconnecting the Pi.
+- If a token is exposed or needs to be replaced, use **Regenerate token** for that tent, then update `MYCO_DEVICE_TOKEN` on the Pi using the replacement command shown by Myco. The old token stops working immediately.
 
 ## Troubleshooting
 
