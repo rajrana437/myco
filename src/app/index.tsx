@@ -12,6 +12,7 @@ import {
 } from "react-native";
 
 import { supabase } from "@/lib/supabase";
+import ConnectPi from "@/components/connect-pi";
 
 // CHANGE THIS to your Raspberry Pi's actual Wi-Fi IP address.
 const API_URL = "http://10.0.0.198:8765/api/status";
@@ -376,6 +377,8 @@ export default function DashboardScreen() {
             </Text>
           </View>
         ) : null}
+
+        <ConnectPi />
 
         {/* Footer */}
         <View style={styles.footer}>
