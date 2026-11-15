@@ -1,42 +1,141 @@
-# Myco
+# Myco 🍄
 
-Expo / React Native mushroom grow tent dashboard.
+A beginner-friendly mushroom grow-tent dashboard built with Expo / React Native and Supabase.
 
-## Cloud setup (Supabase)
+## Fast setup
 
-The cloud foundation uses the existing Supabase project. User accounts are isolated by database Row Level Security. The mobile app uses only the Supabase publishable key; the service-role key stays inside Supabase Edge Functions.
+### 1. Start the Myco app (Windows PowerShell)
 
-1. Check out the `feature/supabase-cloud-foundation` branch.
-2. Install dependencies and let Expo select SDK-compatible native package versions:
+Install [Node.js LTS](https://nodejs.org/) and Git first. Then open PowerShell:
 
-   ```powershell
-   npm install
-   npx expo install @supabase/supabase-js @react-native-async-storage/async-storage expo-secure-store react-native-url-polyfill
-   ```
+```powershell
+git clone -b feature/supabase-cloud-foundation https://github.com/rajrana437/myco.git
+cd myco
+Copy-Item .env.example .env
+notepad .env
+```
 
-3. Copy `.env.example` to `.env` and set the Supabase publishable key from the project's API Keys page.
-4. Restart Expo after changing environment variables:
+In `.env`, replace `YOUR_SUPABASE_PUBLISHABLE_KEY` with the project's **publishable** key. Keep the variable names exactly as shown:
 
-   ```powershell
-   npx expo start -c
-   ```
+```env
+EXPO_PUBLIC_SUPABASE_URL=https://brtnkceizhzdgeknbwrm.supabase.co
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
+```
 
-5. Create an account on the login screen. If email confirmation is enabled in Supabase Auth, confirm the email before signing in.
+Save the file, then run:
 
-## Raspberry Pi setup
+```powershell
+npm ci
+npx expo start -c
+```
 
-For the beginner-friendly two-command Pi uploader installation, see [the Raspberry Pi setup guide](pi/README.md). Device registration and token issuance in the app are still pending; the Pi installer requires a real token issued for the tent.
+Open the Expo app on your phone or use the available Expo development option. Create an account or sign in. If email confirmation is enabled, confirm your email first.
 
-## Important
+### 2. Register your mushroom tent in Myco
 
-- Do not commit `.env`.
-- Never put a Supabase secret/service-role key or a Raspberry Pi device token in the mobile app.
-- The dashboard still reads the local Pi API at the configured LAN address. The cloud telemetry path is separate and is not active until a tent and device token are provisioned.
-- The Raspberry Pi's existing humidity controller is not changed by this app branch.
+1. On the dashboard, find **Connect your Raspberry Pi**.
+2. Tap **Connect a tent**.
+3. Enter a tent name and (optionally) your mushroom species.
+4. Tap **Create tent & generate secure token**.
+5. Copy the one-time device token shown on screen. Keep it private; Myco cannot show it again.
 
-## Validation
+Myco creates the tent and registers its Pi securely. The plaintext token is returned once; only its SHA-256 hash is stored in the database.
 
-After installing packages, run:
+### 3. Connect the Raspberry Pi (two commands)
+
+Your Pi must already be running your working local controller and writing:
+
+```text
+/home/YOUR_LINUX_USER/mushroom-controller/status.json
+```
+
+On the Pi, sign in with the same Linux user that owns `~/mushroom-controller`. Run:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/rajrana437/myco/feature/supabase-cloud-foundation/pi/install.sh
+bash install.sh
+```
+
+When asked, paste the device token copied from Myco. The prompt hides what you type. The installer downloads the uploader, stores its configuration with restricted permissions, and starts the background service.
+
+**Do not run the installer with `sudo`.** It asks for sudo only when installing the service/configuration.
+
+### 4. Confirm the Pi is uploading
+
+On the Pi:
+
+```bash
+sudo systemctl status myco-cloud@$(whoami).service
+sudo journalctl -u myco-cloud@$(whoami).service -f
+```
+
+Look for `Reading uploaded successfully` in the log.
+
+To stop cloud uploading without stopping your local humidity controller:
+
+```bash
+sudo systemctl disable --now myco-cloud@$(whoami).service
+```
+
+To start it again:
+
+```bash
+sudo systemctl enable --now myco-cloud@$(whoami).service
+```
+
+## Raspberry Pi requirements
+
+- Raspberry Pi with internet access.
+- Existing working Myco-compatible controller folder: `~/mushroom-controller`.
+- Existing `status.json` file with these fields:
+
+```json
+{
+  "temperature": 20.5,
+  "humidity": 88.0,
+  "humidifier_on": false,
+  "fan_on": false,
+  "sensor_ok": true,
+  "updated_at": "2026-11-15T00:00:00Z"
+}
+```
+
+Temperature/humidity may be JSON numbers or `null`. The two relay fields must be booleans. `sensor_ok` is optional; `updated_at` is optional.
+
+If your existing status file uses different field names, adjust the uploader mapping before installing; do not change a working controller just to match Myco.
+
+## What this setup does (and does not do)
+
+- Myco creates a tent and securely registers its Raspberry Pi device.
+- The Pi uploader reads `status.json` and sends a reading to Supabase every 30 seconds.
+- The uploader does not access GPIO, switch relays, or modify `humidity_controller.py`.
+- Your existing local controller and SSH workflow remain separate.
+- The current dashboard still reads live local readings from the Pi LAN API at `http://10.0.0.198:8765/api/status`. Change `API_URL` in `src/app/index.tsx` if your Pi has a different IP.
+- Cloud ingestion is enabled, but a remote/cloud-reading dashboard view is a separate follow-up; do not assume the current dashboard displays cloud readings when away from home.
+
+## Security
+
+- Use only the Supabase **publishable** key in the Expo app.
+- Never put a Supabase secret/service-role key in the app, Pi, `.env`, or GitHub.
+- Never commit `.env` or share a Pi device token.
+- The Pi token is generated using cryptographic randomness, shown once, and stored in Supabase only as a SHA-256 hash.
+- If a token is exposed, revoke its device record and issue a replacement before reconnecting the Pi.
+
+## Troubleshooting
+
+| Problem | What to check |
+|---|---|
+| Sign-in fails | Confirm the email/password and check whether email confirmation is required. |
+| Connect button returns an error | Sign out/in to refresh the session, then retry. |
+| Installer cannot find the controller | Run it as the Linux user who owns `~/mushroom-controller`; confirm `status.json` exists. |
+| HTTP 401 in Pi logs | Re-register/replace the device token and rerun the installer with the new token. |
+| Uploader reports missing fields | Inspect `cat ~/mushroom-controller/status.json`; required field names are listed above. |
+| No internet / upload errors | Confirm Pi internet access; the uploader retries automatically. Local control is unaffected. |
+| Need to inspect service | Use the `systemctl status` and `journalctl` commands above. |
+
+## Developer checks
+
+From the project folder:
 
 ```powershell
 npx expo install --check
@@ -44,4 +143,10 @@ npx expo lint
 npx tsc --noEmit
 ```
 
-The app has not yet been run on a physical phone from this branch. Validate the login and existing Pi dashboard locally before merging.
+## Project links
+
+- [Raspberry Pi guide](pi/README.md)
+- [Pi installer](pi/install.sh)
+- [Pull request](https://github.com/rajrana437/myco/pull/1)
+
+Current working branch: `feature/supabase-cloud-foundation`. The `main` branch has not been changed by this setup work.
