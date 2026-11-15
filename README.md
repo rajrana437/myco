@@ -23,6 +23,10 @@ The cloud foundation uses the existing Supabase project. User accounts are isola
 
 5. Create an account on the login screen. If email confirmation is enabled in Supabase Auth, confirm the email before signing in.
 
+## Raspberry Pi setup
+
+For the beginner-friendly two-command Pi uploader installation, see [the Raspberry Pi setup guide](pi/README.md). Device registration and token issuance in the app are still pending; the Pi installer requires a real token issued for the tent.
+
 ## Important
 
 - Do not commit `.env`.
