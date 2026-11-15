@@ -62,7 +62,7 @@ export default function ConnectPi() {
     try {
       const { data, error: invokeError } = await supabase.functions.invoke(
         "create-tent-device",
-        { body: { name: name.trim(), species: species.trim() || null } }
+        { body: { name: name.trim(), species: species.trim() } }
       );
       if (invokeError) throw invokeError;
       if (!data?.ok || !data?.device_token || !data?.tent) {
